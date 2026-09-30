@@ -12,6 +12,8 @@ import bookingRoutes from './routes/bookingRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import favoriteRoutes from './routes/favoriteRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import paymentRoutes from './routes/paymentRoutes.js';
+import reviewRoutes from './routes/reviewRoutes.js';
 import seedDefaultUsers from './utils/seedUsers.js';
 import seedBoards from './utils/seedBoards.js';
 import seedBookings from './utils/seedBookings.js';
@@ -63,6 +65,8 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // Root route
 app.get('/', (req, res) => {

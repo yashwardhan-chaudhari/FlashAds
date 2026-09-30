@@ -56,6 +56,39 @@ const bookingSchema = new mongoose.Schema(
       default: 'pending',
       index: true,
     },
+    bookingType: {
+      type: String,
+      enum: ['exclusive', 'digital_slot'],
+      default: 'exclusive',
+    },
+    digitalConfig: {
+      adDurationSeconds: { type: Number, default: 10 },
+      loopIntervalSeconds: { type: Number, default: 60 },
+      dailyStartTime: { type: String, default: '10:00' },
+      dailyEndTime: { type: String, default: '22:00' },
+      dailyHours: { type: Number, default: 12 },
+      playsPerHour: { type: Number, default: 60 },
+      playsPerDay: { type: Number, default: 720 },
+      totalPlays: { type: Number, default: 21600 },
+      slotSharePercent: { type: Number, default: 16.67 },
+    },
+    paymentStatus: {
+      type: String,
+      enum: ['unpaid', 'paid', 'refunded'],
+      default: 'unpaid',
+      index: true,
+    },
+    paidAt: {
+      type: Date,
+    },
+    razorpayOrderId: {
+      type: String,
+      trim: true,
+    },
+    razorpayPaymentId: {
+      type: String,
+      trim: true,
+    },
     campaignNotes: {
       type: String,
       trim: true,

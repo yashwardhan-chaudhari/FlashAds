@@ -27,10 +27,12 @@ import {
 } from 'lucide-react';
 import { mockBoards } from '../data/mockBoards';
 import { formatCurrency, formatDate, formatDuration } from '../utils/formatters';
-import { calculateDurationPrice, getDaysBetweenDates } from '../utils/pricingEngine';
+import { calculateDurationPrice, calculateDigitalCampaignPrice, getDaysBetweenDates } from '../utils/pricingEngine';
 import LeafletMap from '../components/common/LeafletMap';
 import { useAuth } from '../hooks/useAuth';
 import bookingService from '../services/bookingService';
+import favoriteService from '../services/favoriteService';
+import reviewService from '../services/reviewService';
 
 export default function BoardDetails() {
   const { id } = useParams();
@@ -42,20 +44,27 @@ export default function BoardDetails() {
     return mockBoards.find(b => b.id === id) || mockBoards[0];
   }, [id]);
 
+  const isDigital = board.boardType?.toLowerCase().includes('led') || board.boardType?.toLowerCase().includes('digital');
+
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
 
-  // Date selection for duration pricing engine (Phase 12, 13)
+  // Digital vs Exclusive Booking Mode (Phase 21)
+  const [bookingMode, setBookingMode] = useState(isDigital ? 'digital_spot' : 'exclusive');
+  const [spotDuration, setSpotDuration] = useState(10); // 10 seconds
+  const [loopInterval, setLoopInterval] = useState(60); // Every 60 seconds
+  const [operatingHours, setOperatingHours] = useState('10 AM – 10 PM'); // 12 hours
+
+  // Date selection (Phase 12, 13, 21)
   const today = new Date().toISOString().split('T')[0];
   const defaultStart = '2026-10-10';
-  const defaultEnd = '2026-10-25';
+  const defaultEnd = isDigital ? '2026-11-09' : '2026-10-25'; // 30 days vs 15 days default
   
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
 
   // Active / Booked Intervals (Phase 14 Prevent Double Booking)
-  // Demo booked interval: 1 Oct -> 10 Oct
   const [bookedIntervals, setBookedIntervals] = useState([
     {
       startDate: '2026-10-01',
@@ -65,6 +74,29 @@ export default function BoardDetails() {
     }
   ]);
 
+  // Reviews State (Phase 23)
+  const [reviews, setReviews] = useState([
+    {
+      id: 'rev-1',
+      clientName: 'Rahul Sharma (Pune Academy)',
+      rating: 5,
+      comment: 'Good location and excellent visibility. We saw a 40% surge in website traffic during our Diwali admission campaign.',
+      date: '2 weeks ago',
+      verified: true
+    },
+    {
+      id: 'rev-2',
+      clientName: 'Amit Shinde (QuickDine Pune)',
+      rating: 5,
+      comment: 'Super crisp LED digital display. The 10s spot every minute gave our food festival phenomenal high-frequency reach.',
+      date: '1 month ago',
+      verified: true
+    }
+  ]);
+  const [newRating, setNewRating] = useState(5);
+  const [newComment, setNewComment] = useState('');
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+
   // Booking Modal & Request State
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
@@ -73,38 +105,64 @@ export default function BoardDetails() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState('');
 
-  // Fetch real availability from backend if available
+  // Fetch real availability & reviews from backend
   useEffect(() => {
-    if (board._id || id) {
-      bookingService.getBoardAvailability(board._id || id)
+    const boardKey = board._id || id;
+    if (boardKey) {
+      bookingService.getBoardAvailability(boardKey)
         .then((data) => {
           if (data.bookedIntervals && data.bookedIntervals.length > 0) {
             setBookedIntervals(data.bookedIntervals);
           }
         })
-        .catch(() => {
-          // Keep default demo booked interval
-        });
+        .catch(() => {});
+
+      reviewService.getBoardReviews(boardKey)
+        .then((data) => {
+          if (data.reviews && data.reviews.length > 0) {
+            setReviews(data.reviews.map(r => ({
+              id: r._id,
+              clientName: r.clientId?.name || 'Verified Client',
+              rating: r.rating,
+              comment: r.comment,
+              date: new Date(r.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+              verified: true
+            })));
+          }
+        })
+        .catch(() => {});
     }
   }, [board, id]);
 
-  // Calculate duration and intelligent price quote (Phase 12)
+  // Calculate duration and intelligent price quote (Phase 12, 21)
   const durationDays = useMemo(() => {
     return getDaysBetweenDates(startDate, endDate);
   }, [startDate, endDate]);
 
   const pricingQuote = useMemo(() => {
+    if (bookingMode === 'digital_spot' && isDigital) {
+      return calculateDigitalCampaignPrice({
+        spotDurationSeconds: spotDuration,
+        loopIntervalSeconds: loopInterval,
+        dailyOperatingHours: 12,
+        operatingTimeWindow: operatingHours,
+        campaignDays: durationDays,
+        basePricePerDay: board.pricePerDay || 3000,
+      });
+    }
+
     return calculateDurationPrice(
       durationDays,
       board.pricePerDay,
       board.pricePerWeek,
       board.pricePerMonth
     );
-  }, [durationDays, board]);
+  }, [bookingMode, isDigital, spotDuration, loopInterval, operatingHours, durationDays, board]);
 
   // Interval Overlap Collision Check (Phase 14)
-  // Condition: (startA < endB) AND (endA > startB)
   const dateConflict = useMemo(() => {
+    // Only exclusive takeover locks calendar completely; spot loops allow multi-tenant slots
+    if (bookingMode === 'digital_spot') return null;
     if (!startDate || !endDate) return null;
     const reqStart = new Date(startDate).getTime();
     const reqEnd = new Date(endDate).getTime();
@@ -122,7 +180,43 @@ export default function BoardDetails() {
       }
     }
     return null;
-  }, [startDate, endDate, bookedIntervals]);
+  }, [bookingMode, startDate, endDate, bookedIntervals]);
+
+  const handleToggleFavorite = async () => {
+    setIsFavorite(!isFavorite);
+    try {
+      if (board._id || id) {
+        await favoriteService.toggleFavorite(board._id || id);
+      }
+    } catch (e) {}
+  };
+
+  const handleAddReview = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+
+    const newRev = {
+      id: Date.now(),
+      clientName: user?.name || 'Verified Advertiser',
+      rating: newRating,
+      comment: newComment.trim(),
+      date: 'Just now',
+      verified: true
+    };
+    setReviews([newRev, ...reviews]);
+    setIsReviewModalOpen(false);
+    setNewComment('');
+
+    try {
+      if (board._id || id) {
+        await reviewService.createReview({
+          boardId: board._id || id,
+          rating: newRating,
+          comment: newRev.comment,
+        });
+      }
+    } catch (e) {}
+  };
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
@@ -179,8 +273,6 @@ export default function BoardDetails() {
       setIsSubmitting(false);
     }
   };
-
-  const isDigital = board.boardType?.toLowerCase().includes('led') || board.boardType?.toLowerCase().includes('digital');
 
   return (
     <div className="bg-slate-50 min-h-screen py-8">
@@ -413,7 +505,7 @@ export default function BoardDetails() {
               </div>
 
               <Link
-                to={isAuthenticated ? '/client/dashboard?tab=messages' : '/login'}
+                to={isAuthenticated ? `/messages?to=${board.ownerName}` : '/login'}
                 className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
               >
                 <MessageSquare className="w-4 h-4 text-blue-600" />
@@ -421,20 +513,150 @@ export default function BoardDetails() {
               </Link>
             </div>
 
+            {/* Reviews Section (Phase 23) */}
+            <div className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200 shadow-xs space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">Advertiser Reviews</h3>
+                    <div className="flex items-center gap-1 text-amber-400 font-extrabold text-xs">
+                      <Star className="w-4 h-4 fill-amber-400" />
+                      <span>5.0</span>
+                      <span className="text-slate-400 font-normal">({reviews.length})</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">Verified feedback from past campaign clients</p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isAuthenticated) navigate('/login');
+                    else setIsReviewModalOpen(true);
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  ★ Write Review
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {reviews.map((rev) => (
+                  <div key={rev.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900">{rev.clientName}</span>
+                        {rev.verified && (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
+                            ✓ Verified Campaign
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400">{rev.date}</span>
+                    </div>
+
+                    <div className="flex text-amber-400 text-xs">
+                      {[...Array(rev.rating)].map((_, i) => (
+                        <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      ))}
+                    </div>
+
+                    <p className="text-xs text-slate-700 leading-relaxed italic">
+                      "{rev.comment}"
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
           </div>
 
-          {/* RIGHT 4 COLUMNS: Sticky Duration-Based Pricing Engine (Phase 12) */}
+          {/* RIGHT 4 COLUMNS: Sticky Duration & Digital Spot Engine (Phase 12, 21) */}
           <div className="lg:col-span-4 sticky top-24 space-y-6">
             <div className="p-6 sm:p-8 rounded-3xl bg-slate-950 text-white shadow-2xl border border-slate-800 space-y-6">
               
               <div className="pb-4 border-b border-slate-800">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-orange-400 block mb-1">
-                  Intelligent Duration Engine
+                  {isDigital ? 'Digital LED Spot & Campaign Engine' : 'Intelligent Duration Engine'}
                 </span>
                 <h3 className="text-xl font-extrabold text-white">
                   Calculate Campaign Cost
                 </h3>
               </div>
+
+              {/* Digital vs Exclusive Selector if LED (Phase 21) */}
+              {isDigital && (
+                <div className="p-1 bg-slate-900 rounded-xl flex gap-1 border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setBookingMode('digital_spot')}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      bookingMode === 'digital_spot'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    ⚡ Digital DOOH Slot
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBookingMode('exclusive')}
+                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      bookingMode === 'exclusive'
+                        ? 'bg-orange-500 text-white shadow-md'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Exclusive Takeover
+                  </button>
+                </div>
+              )}
+
+              {/* Phase 21: Digital Spot Specific Configurations */}
+              {isDigital && bookingMode === 'digital_spot' && (
+                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                  <span className="text-[10px] uppercase font-bold text-orange-400 block">
+                    Digital Spot Parameters
+                  </span>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">Spot Duration</label>
+                      <select
+                        value={spotDuration}
+                        onChange={(e) => setSpotDuration(Number(e.target.value))}
+                        className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white"
+                      >
+                        <option value={10}>10 Seconds</option>
+                        <option value={15}>15 Seconds</option>
+                        <option value={30}>30 Seconds</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 block mb-1">Display Frequency</label>
+                      <select
+                        value={loopInterval}
+                        onChange={(e) => setLoopInterval(Number(e.target.value))}
+                        className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-white"
+                      >
+                        <option value={60}>Every 60 seconds (1/min)</option>
+                        <option value={120}>Every 120 seconds (1/2min)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-300 pt-2 border-t border-slate-800">
+                    <span className="text-slate-400">Broadcast Hours:</span>
+                    <span className="font-bold text-white">10 AM – 10 PM (12 hrs)</span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-300">
+                    <span className="text-slate-400">Daily Frequency:</span>
+                    <span className="font-bold text-emerald-400">{pricingQuote.spotsPerDay || 720} plays / day</span>
+                  </div>
+                </div>
+              )}
 
               {/* Date Range Selection */}
               <div className="space-y-4">
@@ -485,19 +707,6 @@ export default function BoardDetails() {
                 </div>
               )}
 
-              {/* Existing Booked Dates Legend */}
-              {bookedIntervals.length > 0 && (
-                <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[11px] text-slate-400 space-y-1">
-                  <span className="text-[10px] uppercase font-bold text-slate-500 block">Existing Reserved Slots:</span>
-                  {bookedIntervals.map((inv, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-slate-300">
-                      <span>• {new Date(inv.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} → {new Date(inv.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 capitalize">Booked</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {/* Live Duration & Pricing Breakdown Box */}
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
                 
@@ -505,9 +714,19 @@ export default function BoardDetails() {
                 <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
                   <span className="text-slate-400">Total Duration:</span>
                   <span className="font-extrabold text-white text-sm bg-slate-800 px-2.5 py-0.5 rounded-md">
-                    {pricingQuote.durationDays} Days
+                    {pricingQuote.durationDays || pricingQuote.campaignDays} Days
                   </span>
                 </div>
+
+                {/* Digital Total Impressions */}
+                {isDigital && bookingMode === 'digital_spot' && (
+                  <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800 text-slate-300">
+                    <span className="text-slate-400">Total Campaign Plays:</span>
+                    <span className="font-extrabold text-blue-400">
+                      {pricingQuote.totalSpots?.toLocaleString('en-IN')} Plays
+                    </span>
+                  </div>
+                )}
 
                 {/* Applicable Combination Breakdown */}
                 <div className="text-xs space-y-1">
@@ -522,7 +741,7 @@ export default function BoardDetails() {
                 {/* Savings Indicator */}
                 {pricingQuote.savings > 0 && (
                   <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400 flex items-center justify-between">
-                    <span className="font-semibold">Duration Tier Discount:</span>
+                    <span className="font-semibold">Volume Discount:</span>
                     <span className="font-extrabold">Save {formatCurrency(pricingQuote.savings)}</span>
                   </div>
                 )}
@@ -530,12 +749,12 @@ export default function BoardDetails() {
                 {/* Final Total Amount */}
                 <div className="pt-2 border-t border-slate-800 flex items-baseline justify-between">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Price</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Campaign Price</span>
                     <span className="text-2xl sm:text-3xl font-extrabold text-white">
                       {formatCurrency(pricingQuote.totalAmount)}
                     </span>
                   </div>
-                  <span className="text-[11px] text-slate-400">for {pricingQuote.durationDays} days</span>
+                  <span className="text-[11px] text-slate-400">for {pricingQuote.durationDays || pricingQuote.campaignDays} days</span>
                 </div>
 
               </div>
@@ -681,6 +900,84 @@ export default function BoardDetails() {
               </>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* Review Submission Modal (Phase 23) */}
+      {isReviewModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Write Board Review</h3>
+                <p className="text-xs text-slate-500">{board.title}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsReviewModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddReview} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">Select Star Rating</label>
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setNewRating(star)}
+                      className="p-1 text-2xl transition-transform hover:scale-125 cursor-pointer"
+                    >
+                      <Star
+                        className={`w-7 h-7 ${
+                          star <= newRating
+                            ? 'text-amber-400 fill-amber-400'
+                            : 'text-slate-300'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                  <span className="text-xs font-bold text-slate-700 ml-2">
+                    {newRating} / 5 Stars
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Campaign Review & Visibility Feedback
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  placeholder="e.g. Good location and excellent visibility. Crisp digital display during evening peak hours."
+                  className="w-full p-3 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                ></textarea>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReviewModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 cursor-pointer"
+                >
+                  Publish Review
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
