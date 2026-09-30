@@ -84,3 +84,66 @@ export const getDaysBetweenDates = (startDate, endDate) => {
   const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
   return Math.max(1, diffDays);
 };
+
+/**
+ * FlashAds Digital Board / LED DOOH Spot Pricing Engine (Phase 21)
+ * Calculates multi-slot digital campaign price based on spot length, loop frequency, and broadcast window.
+ * 
+ * Example:
+ * Advertisement duration: 10 seconds
+ * Display: Every 60 seconds
+ * Time: 10 AM – 10 PM (12 hours)
+ * Campaign: 30 days
+ */
+export const calculateDigitalCampaignPrice = ({
+  spotDurationSeconds = 10,
+  loopIntervalSeconds = 60,
+  dailyOperatingHours = 12,
+  operatingTimeWindow = '10 AM – 10 PM',
+  campaignDays = 30,
+  basePricePerDay = 3000,
+}) => {
+  const durationSec = Number(spotDurationSeconds) || 10;
+  const loopSec = Number(loopIntervalSeconds) || 60;
+  const hours = Number(dailyOperatingHours) || 12;
+  const days = Number(campaignDays) || 1;
+
+  // 1. Loops per hour and per day
+  const spotsPerHour = Math.floor(3600 / loopSec); // e.g. 60 spots / hour
+  const spotsPerDay = spotsPerHour * hours; // e.g. 720 spots / day
+  const totalSpots = spotsPerDay * days; // e.g. 21,600 spots for 30 days
+
+  // 2. Base cost per spot derived from board daily digital rate
+  const spotRateFactor = durationSec / 10;
+  const baseDailyCost = basePricePerDay * spotRateFactor;
+  const standardCost = baseDailyCost * days;
+
+  // 3. Multi-day volume discount:
+  let discountPercent = 0;
+  if (days >= 30) discountPercent = 0.35;
+  else if (days >= 15) discountPercent = 0.20;
+  else if (days >= 7) discountPercent = 0.10;
+
+  const totalAmount = Math.round(standardCost * (1 - discountPercent));
+  const savings = standardCost - totalAmount;
+  const effectivePricePerSpot = (totalAmount / totalSpots).toFixed(2);
+
+  const breakdown = `${spotsPerDay} spots/day (${durationSec}s spot every ${loopSec}s from ${operatingTimeWindow}) × ${days} days = ${totalSpots.toLocaleString('en-IN')} total plays`;
+
+  return {
+    isDigital: true,
+    spotDurationSeconds: durationSec,
+    loopIntervalSeconds: loopSec,
+    operatingTimeWindow,
+    dailyOperatingHours: hours,
+    spotsPerDay,
+    campaignDays: days,
+    totalSpots,
+    totalAmount,
+    effectivePricePerSpot: Number(effectivePricePerSpot),
+    savings,
+    discountPercent: Math.round(discountPercent * 100),
+    breakdown,
+  };
+};
+

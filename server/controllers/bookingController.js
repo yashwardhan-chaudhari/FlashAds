@@ -1,14 +1,14 @@
 import Booking from '../models/Booking.js';
 import Board from '../models/Board.js';
 import Notification from '../models/Notification.js';
-import { calculateDurationPrice, getDaysBetweenDates } from '../services/pricingEngine.js';
+import { calculateDurationPrice, getDaysBetweenDates, calculateDigitalCampaignPrice } from '../services/pricingEngine.js';
 
 /**
  * Helper to check date interval overlap on a board
  * Overlap condition: (StartA < EndB) AND (EndA > StartB)
  * Active booking statuses that block dates: 'approved' (and optionally 'pending')
  */
-export const checkBookingOverlap = async (boardId, startDate, endDate, excludeBookingId = null) => {
+export const checkBookingOverlap = async (boardId, startDate, endDate, excludeBookingId = null, bookingType = 'exclusive') => {
   const start = new Date(startDate);
   const end = new Date(endDate);
 
@@ -30,6 +30,20 @@ export const checkBookingOverlap = async (boardId, startDate, endDate, excludeBo
     .populate('clientId', 'name email phone')
     .sort({ startDate: 1 });
 
+  if (bookingType === 'digital_slot') {
+    // Check if there is an exclusive takeover booking (which blocks all slots)
+    const exclusiveConflict = conflictingBookings.find(b => b.bookingType === 'exclusive' || !b.bookingType);
+    if (exclusiveConflict) {
+      return [exclusiveConflict];
+    }
+    // For digital slots, max simultaneous slots is 6 (for 60s loop with 10s slots)
+    const digitalSlotsCount = conflictingBookings.filter(b => b.bookingType === 'digital_slot').length;
+    if (digitalSlotsCount >= 6) {
+      return conflictingBookings;
+    }
+    return []; // Slots still available
+  }
+
   return conflictingBookings;
 };
 
@@ -40,7 +54,7 @@ export const checkBookingOverlap = async (boardId, startDate, endDate, excludeBo
  */
 export const createBooking = async (req, res) => {
   try {
-    const { boardId, startDate, endDate, campaignNotes } = req.body;
+    const { boardId, startDate, endDate, campaignNotes, bookingType = 'exclusive', digitalConfig } = req.body;
 
     if (!boardId || !startDate || !endDate) {
       return res.status(400).json({
@@ -92,8 +106,8 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // 3. Prevent Double Booking (Phase 14 Check)
-    const conflicts = await checkBookingOverlap(boardId, start, end);
+    // 3. Prevent Double Booking (Phase 14 Check with Digital Slot awareness)
+    const conflicts = await checkBookingOverlap(boardId, start, end, null, bookingType);
     if (conflicts.length > 0) {
       const conflict = conflicts[0];
       const conflictStart = new Date(conflict.startDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -110,14 +124,51 @@ export const createBooking = async (req, res) => {
       });
     }
 
-    // 4. Calculate Duration and Intelligent Tier Pricing (Phase 12)
+    // 4. Calculate Duration and Intelligent Tier Pricing (Phase 12 / Phase 21)
     const durationDays = getDaysBetweenDates(start, end);
-    const pricing = calculateDurationPrice(
-      durationDays,
-      board.pricePerDay,
-      board.pricePerWeek,
-      board.pricePerMonth
-    );
+    let totalAmount = 0;
+    let priceBreakdown = '';
+    let parsedDigitalConfig = undefined;
+
+    if (bookingType === 'digital_slot') {
+      const adDurationSec = Number(digitalConfig?.adDurationSeconds) || 10;
+      const loopIntervalSec = Number(digitalConfig?.loopIntervalSeconds) || 60;
+      const dailyHours = Number(digitalConfig?.dailyHours) || 12;
+      const timeWindow = digitalConfig?.operatingTimeWindow || '10 AM – 10 PM';
+
+      const digPrice = calculateDigitalCampaignPrice({
+        spotDurationSeconds: adDurationSec,
+        loopIntervalSeconds: loopIntervalSec,
+        dailyOperatingHours: dailyHours,
+        operatingTimeWindow: timeWindow,
+        campaignDays: durationDays,
+        basePricePerDay: board.pricePerDay,
+      });
+
+      totalAmount = digPrice.totalAmount;
+      priceBreakdown = digPrice.breakdown;
+
+      parsedDigitalConfig = {
+        adDurationSeconds: adDurationSec,
+        loopIntervalSeconds: loopIntervalSec,
+        dailyStartTime: digitalConfig?.dailyStartTime || '10:00',
+        dailyEndTime: digitalConfig?.dailyEndTime || '22:00',
+        dailyHours: dailyHours,
+        playsPerHour: digPrice.spotsPerDay / dailyHours,
+        playsPerDay: digPrice.spotsPerDay,
+        totalPlays: digPrice.totalSpots,
+        slotSharePercent: Math.round((adDurationSec / loopIntervalSec) * 100 * 100) / 100,
+      };
+    } else {
+      const pricing = calculateDurationPrice(
+        durationDays,
+        board.pricePerDay,
+        board.pricePerWeek,
+        board.pricePerMonth
+      );
+      totalAmount = pricing.totalAmount;
+      priceBreakdown = pricing.breakdown;
+    }
 
     // 5. Create Booking Document
     const booking = new Booking({
@@ -127,8 +178,11 @@ export const createBooking = async (req, res) => {
       startDate: start,
       endDate: end,
       duration: durationDays,
-      totalAmount: pricing.totalAmount,
-      priceBreakdown: pricing.breakdown,
+      totalAmount,
+      priceBreakdown,
+      bookingType,
+      digitalConfig: parsedDigitalConfig,
+      paymentStatus: 'unpaid',
       status: 'pending',
       campaignNotes: campaignNotes || '',
     });
@@ -142,7 +196,7 @@ export const createBooking = async (req, res) => {
         senderId: req.user._id,
         type: 'booking_request',
         title: 'New Booking Request Received',
-        message: `New booking request from ${req.user.name} for ${board.title} (${durationDays} days).`,
+        message: `New booking request from ${req.user.name} for ${board.title} (${durationDays} days${bookingType === 'digital_slot' ? ' - Digital Slot' : ''}).`,
         link: '/advertiser/dashboard?tab=requests',
       });
     } catch (notifErr) {
@@ -150,7 +204,7 @@ export const createBooking = async (req, res) => {
     }
 
     const populatedBooking = await Booking.findById(booking._id)
-      .populate('boardId', 'title images city area address boardType width height trafficLevel')
+      .populate('boardId', 'title images city area address boardType width height trafficLevel pricePerDay pricePerWeek pricePerMonth')
       .populate('clientId', 'name email phone')
       .populate('advertiserId', 'name email phone');
 
