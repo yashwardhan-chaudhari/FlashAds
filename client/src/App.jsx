@@ -1,6 +1,6 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import MainLayout from './layouts/MainLayout';
 import Home from './pages/Home';
@@ -16,6 +16,14 @@ import ClientDashboard from './pages/dashboards/ClientDashboard';
 import AdvertiserDashboard from './pages/dashboards/AdvertiserDashboard';
 import AdminDashboard from './pages/dashboards/AdminDashboard';
 import { Zap, ArrowLeft } from 'lucide-react';
+
+function DashboardRedirect() {
+  const { user, isAuthenticated } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (user?.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+  if (user?.role === 'advertiser') return <Navigate to="/advertiser/dashboard" replace />;
+  return <Navigate to="/client/dashboard" replace />;
+}
 
 function NotFound() {
   return (
@@ -87,6 +95,17 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
+            {/* Aliases & Direct Redirects (Phase 27 Fixes) */}
+            <Route path="dashboard" element={<DashboardRedirect />} />
+            <Route path="client" element={<Navigate to="/client/dashboard" replace />} />
+            <Route path="advertiser" element={<Navigate to="/advertiser/dashboard" replace />} />
+            <Route path="admin" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="favorites" element={<Navigate to="/client/dashboard?tab=favorites" replace />} />
+            <Route path="my-bookings" element={<Navigate to="/client/dashboard?tab=bookings" replace />} />
+            <Route path="my-boards" element={<Navigate to="/advertiser/dashboard?tab=boards" replace />} />
+            <Route path="add-board" element={<Navigate to="/advertiser/dashboard?tab=add" replace />} />
+            <Route path="requests" element={<Navigate to="/advertiser/dashboard?tab=requests" replace />} />
 
             <Route path="*" element={<NotFound />} />
           </Route>

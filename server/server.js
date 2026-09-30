@@ -1,3 +1,5 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -21,6 +23,9 @@ import seedBookings from './utils/seedBookings.js';
 // Load environment variables
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -34,13 +39,16 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Security & Utility Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: process.env.CLIENT_URL || ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5000'],
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
@@ -68,16 +76,24 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reviews', reviewRoutes);
 
-// Root route
-app.get('/', (req, res) => {
-  res.send('FlashAds API is running...');
-});
+// Serve static frontend assets for production / SPA fallback
+const clientDistPath = path.join(__dirname, '../client/dist');
+app.use(express.static(clientDistPath));
 
-// Global 404 Handler
-app.use((req, res, next) => {
+// API 404 Handler (only for unmapped /api/* endpoints)
+app.all('/api/*', (req, res) => {
   res.status(404).json({
     success: false,
-    message: `Not Found - ${req.originalUrl}`
+    message: `API Route Not Found - ${req.originalUrl}`
+  });
+});
+
+// SPA Catch-All Fallback (solves Login -> 404 on browser refresh)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientDistPath, 'index.html'), (err) => {
+    if (err) {
+      res.send('FlashAds API is online. Client build will be served here.');
+    }
   });
 });
 

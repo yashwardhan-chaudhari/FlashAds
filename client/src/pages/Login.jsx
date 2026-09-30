@@ -28,8 +28,9 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const redirectByRole = (userRole) => {
-    const from = location.state?.from?.pathname;
-    if (from && !from.includes('/login') && !from.includes('/register')) {
+    const rawFrom = location.state?.from;
+    const from = typeof rawFrom === 'string' ? rawFrom : rawFrom?.pathname;
+    if (from && typeof from === 'string' && !from.includes('/login') && !from.includes('/register')) {
       navigate(from, { replace: true });
       return;
     }

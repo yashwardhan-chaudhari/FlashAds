@@ -82,6 +82,24 @@ export default function AddBoardForm({ onBoardAdded }) {
     }
   };
 
+  const handleFileUpload = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      if (file && formData.images.length < 8) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (reader.result) {
+            setFormData(prev => ({
+              ...prev,
+              images: [...prev.images, reader.result]
+            }));
+          }
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  };
+
   const handleRemoveImage = (index) => {
     if (formData.images.length <= 1) return;
     setFormData({
@@ -541,7 +559,7 @@ export default function AddBoardForm({ onBoardAdded }) {
             ))}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               type="url"
               value={customImageUrl}
@@ -549,13 +567,26 @@ export default function AddBoardForm({ onBoardAdded }) {
               placeholder="Paste high-res image URL (JPG, PNG, WebP)..."
               className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-orange-500"
             />
-            <button
-              type="button"
-              onClick={handleAddImage}
-              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer"
-            >
-              + Add Image URL
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleAddImage}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold cursor-pointer"
+              >
+                + Add URL
+              </button>
+              <label className="px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-md">
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Upload File</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
           </div>
 
           {/* Quick presets for rapid testing */}
