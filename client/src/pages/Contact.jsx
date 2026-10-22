@@ -6,9 +6,7 @@ import {
   Send, 
   CheckCircle2, 
   Clock, 
-  MessageSquare, 
-  Building2,
-  Sparkles
+  MessageSquare
 } from 'lucide-react';
 
 export default function Contact() {

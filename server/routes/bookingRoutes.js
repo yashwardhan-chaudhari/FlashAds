@@ -8,7 +8,7 @@ import {
   getBoardAvailability,
   getBookingById,
 } from '../controllers/bookingController.js';
-import { protect, authorize } from '../middleware/authMiddleware.js';
+import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 

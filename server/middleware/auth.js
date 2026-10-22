@@ -77,3 +77,29 @@ export const authorize = (...roles) => {
     next();
   };
 };
+
+/**
+ * Optional authentication: decodes user if JWT is present, but doesn't block unauthenticated requests
+ */
+export const optionalProtect = async (req, res, next) => {
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith('Bearer')
+  ) {
+    try {
+      const token = req.headers.authorization.split(' ')[1];
+      const decoded = jwt.verify(
+        token,
+        process.env.JWT_SECRET || 'flashads_jwt_secret_dev_key_2026'
+      );
+      const user = await User.findById(decoded.id).select('-password');
+      if (user && user.isActive) {
+        req.user = user;
+      }
+    } catch {
+      // Ignored for optional auth
+    }
+  }
+  next();
+};
+

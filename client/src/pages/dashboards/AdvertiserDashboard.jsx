@@ -31,6 +31,7 @@ import {
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { mockBoards } from '../../data/mockBoards';
 import bookingService from '../../services/bookingService';
+import boardService from '../../services/boardService';
 
 export default function AdvertiserDashboard() {
   const { user } = useAuth();
@@ -38,6 +39,7 @@ export default function AdvertiserDashboard() {
   const initialTab = searchParams.get('tab') || 'dashboard';
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [isLoadingBoards, setIsLoadingBoards] = useState(false);
 
   // Owned Boards State
   const [myBoards, setMyBoards] = useState([
@@ -177,6 +179,30 @@ export default function AdvertiserDashboard() {
       });
   }, []);
 
+  // Fetch advertiser's owned boards from backend
+  useEffect(() => {
+    setIsLoadingBoards(true);
+    boardService.getMyBoards()
+      .then((data) => {
+        if (data && data.boards && data.boards.length > 0) {
+          const mapped = data.boards.map((b) => ({
+            ...b,
+            id: b._id || b.id,
+            dimensions: b.dimensions || `${b.width || 30} × ${b.height || 15} ft`,
+            activeBookingsCount: 0,
+            image: b.images?.[0] || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=800&q=80',
+          }));
+          setMyBoards(mapped);
+        }
+      })
+      .catch(() => {
+        // Fallback to initial mock state
+      })
+      .finally(() => {
+        setIsLoadingBoards(false);
+      });
+  }, []);
+
   // Messages State
   const [activeClient, setActiveClient] = useState('Rahul Sharma');
   const [messages, setMessages] = useState([
@@ -199,7 +225,7 @@ export default function AdvertiserDashboard() {
   const handleApproveRequest = async (id) => {
     try {
       await bookingService.updateBookingStatus(id, 'approved');
-    } catch (e) {
+    } catch {
       // Local UI update
     }
     setRequests(requests.map(r => r.id === id ? { ...r, status: 'approved' } : r));
@@ -208,13 +234,18 @@ export default function AdvertiserDashboard() {
   const handleRejectRequest = async (id) => {
     try {
       await bookingService.updateBookingStatus(id, 'rejected');
-    } catch (e) {
+    } catch {
       // Local UI update
     }
     setRequests(requests.map(r => r.id === id ? { ...r, status: 'rejected' } : r));
   };
 
-  const toggleBoardAvailability = (id) => {
+  const toggleBoardAvailability = async (id) => {
+    try {
+      await boardService.toggleAvailability(id);
+    } catch {
+      // Local fallback
+    }
     setMyBoards(myBoards.map(b => {
       if (b.id === id) {
         const nextStatus = b.status === 'unavailable' ? 'approved' : 'unavailable';
@@ -226,6 +257,7 @@ export default function AdvertiserDashboard() {
 
   const handleNewBoardCreated = (createdBoard) => {
     setMyBoards([createdBoard, ...myBoards]);
+    setActiveTab('boards');
   };
 
   const handleSendChat = (e) => {

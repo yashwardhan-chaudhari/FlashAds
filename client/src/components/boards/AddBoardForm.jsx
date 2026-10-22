@@ -19,6 +19,7 @@ import {
 import { formatCurrency } from '../../utils/formatters';
 import { puneAreas } from '../../data/mockBoards';
 import BoardCard from '../common/BoardCard';
+import boardService from '../../services/boardService';
 
 export default function AddBoardForm({ onBoardAdded }) {
   const [formData, setFormData] = useState({
@@ -46,6 +47,7 @@ export default function AddBoardForm({ onBoardAdded }) {
 
   const [customImageUrl, setCustomImageUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [successBanner, setSuccessBanner] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [showPreview, setShowPreview] = useState(false);
@@ -99,6 +101,47 @@ export default function AddBoardForm({ onBoardAdded }) {
     }
   };
 
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (formData.images.length >= 8) {
+      setErrorMessage('Maximum 8 images permitted per board.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMessage('File size exceeds 5 MB limit.');
+      return;
+    }
+
+    setIsUploadingImage(true);
+    setErrorMessage('');
+
+    try {
+      const data = await boardService.uploadImage(file);
+      if (data.url) {
+        setFormData((prev) => ({
+          ...prev,
+          images: [...prev.images, data.url],
+        }));
+      }
+    } catch {
+      // Local fallback preview using FileReader if upload API fails
+      const reader = new FileReader();
+      reader.onload = (uploadEvt) => {
+        setFormData((prev) => ({
+          ...prev,
+          images: [...prev.images, uploadEvt.target.result],
+        }));
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
@@ -118,40 +161,63 @@ export default function AddBoardForm({ onBoardAdded }) {
 
     setIsSubmitting(true);
 
-    const newBoardObject = {
-      id: `b-${Date.now()}`,
-      title: formData.title.trim(),
-      description: formData.description.trim() || `${formData.boardType} located at ${formData.address}, ${formData.area}, Pune.`,
-      boardType: formData.boardType,
-      typeLabel: formData.boardType === 'LED digital screen' ? 'LED Digital Screen' : formData.boardType.toUpperCase(),
-      city: formData.city,
-      area: formData.area,
-      address: formData.address.trim(),
-      latitude: Number(formData.latitude),
-      longitude: Number(formData.longitude),
-      width: Number(formData.width),
-      height: Number(formData.height),
-      dimensions: `${formData.width} × ${formData.height} ft`,
-      trafficLevel: formData.trafficLevel,
-      visibility: formData.visibility,
-      pricePerDay: Number(formData.pricePerDay),
-      pricePerWeek: Number(formData.pricePerWeek),
-      pricePerMonth: Number(formData.pricePerMonth),
-      images: formData.images,
-      availableFrom: formData.availableFrom,
-      availableUntil: formData.availableUntil,
-      status: 'pending', // Starts as pending for Admin approval
-      rejectionReason: '',
-      createdAt: new Date().toISOString()
-    };
+    try {
+      const payload = {
+        title: formData.title.trim(),
+        description: formData.description.trim() || `${formData.boardType} located at ${formData.address}, ${formData.area}, Pune.`,
+        boardType: formData.boardType,
+        city: formData.city,
+        area: formData.area,
+        address: formData.address.trim(),
+        latitude: Number(formData.latitude),
+        longitude: Number(formData.longitude),
+        width: Number(formData.width),
+        height: Number(formData.height),
+        trafficLevel: formData.trafficLevel,
+        visibility: formData.visibility,
+        pricePerDay: Number(formData.pricePerDay),
+        pricePerWeek: Number(formData.pricePerWeek),
+        pricePerMonth: Number(formData.pricePerMonth),
+        images: formData.images,
+        availableFrom: formData.availableFrom,
+        availableUntil: formData.availableUntil,
+      };
 
-    setTimeout(() => {
-      setIsSubmitting(false);
+      let createdBoard;
+      try {
+        const response = await boardService.createBoard(payload);
+        if (response.board) {
+          createdBoard = {
+            ...response.board,
+            id: response.board._id || response.board.id,
+            dimensions: `${response.board.width} × ${response.board.height} ft`,
+            typeLabel: response.board.boardType === 'LED digital screen' ? 'LED Digital Screen' : response.board.boardType.toUpperCase(),
+          };
+        }
+      } catch (apiErr) {
+        console.warn('Backend board creation fallback:', apiErr.message);
+      }
+
+      if (!createdBoard) {
+        createdBoard = {
+          id: `b-${Date.now()}`,
+          ...payload,
+          dimensions: `${payload.width} × ${payload.height} ft`,
+          typeLabel: payload.boardType === 'LED digital screen' ? 'LED Digital Screen' : payload.boardType.toUpperCase(),
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+        };
+      }
+
       setSuccessBanner(true);
       if (onBoardAdded) {
-        onBoardAdded(newBoardObject);
+        onBoardAdded(createdBoard);
       }
-    }, 600);
+    } catch (err) {
+      setErrorMessage(err.message || 'Error submitting board');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const previewBoardObject = {
@@ -541,12 +607,30 @@ export default function AddBoardForm({ onBoardAdded }) {
             ))}
           </div>
 
+          {/* File Upload Zone */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3.5 rounded-xl bg-slate-900 border border-dashed border-slate-700 hover:border-orange-500/50 transition-colors">
+            <label className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold cursor-pointer transition-colors shadow-md shadow-orange-600/20 shrink-0">
+              <UploadCloud className="w-4 h-4" />
+              <span>{isUploadingImage ? 'Uploading...' : 'Upload Image File'}</span>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileUpload}
+                disabled={isUploadingImage || formData.images.length >= 8}
+                className="hidden"
+              />
+            </label>
+            <span className="text-[11px] text-slate-400">
+              Upload board photos (JPG, PNG, WebP up to 5 MB) via Cloudinary CDN or paste image URL below
+            </span>
+          </div>
+
           <div className="flex gap-2">
             <input
               type="url"
               value={customImageUrl}
               onChange={(e) => setCustomImageUrl(e.target.value)}
-              placeholder="Paste high-res image URL (JPG, PNG, WebP)..."
+              placeholder="Or paste high-res image URL (JPG, PNG, WebP)..."
               className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-orange-500"
             />
             <button

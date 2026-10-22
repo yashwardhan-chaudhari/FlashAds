@@ -8,9 +8,6 @@ import {
   Calendar, 
   Tv, 
   ShieldCheck, 
-  Sparkles, 
-  Clock, 
-  ChevronRight, 
   MessageSquare, 
   Share2, 
   Heart, 
@@ -18,18 +15,14 @@ import {
   CheckCircle2, 
   XCircle,
   ArrowRight,
-  Info,
-  DollarSign,
-  Building2,
-  Lock,
-  ArrowLeft,
   AlertTriangle
 } from 'lucide-react';
 import { mockBoards } from '../data/mockBoards';
-import { formatCurrency, formatDate, formatDuration } from '../utils/formatters';
+import { formatCurrency } from '../utils/formatters';
 import { calculateDurationPrice, calculateDigitalCampaignPrice, getDaysBetweenDates } from '../utils/pricingEngine';
 import LeafletMap from '../components/common/LeafletMap';
 import { useAuth } from '../hooks/useAuth';
+import boardService from '../services/boardService';
 import bookingService from '../services/bookingService';
 import favoriteService from '../services/favoriteService';
 import reviewService from '../services/reviewService';
@@ -40,8 +33,25 @@ export default function BoardDetails() {
   const { user, isAuthenticated } = useAuth();
 
   // Find board by ID from dataset or fallback to first
-  const board = useMemo(() => {
-    return mockBoards.find(b => b.id === id) || mockBoards[0];
+  const initialBoard = useMemo(() => {
+    return mockBoards.find(b => b.id === id || b._id === id) || mockBoards[0];
+  }, [id]);
+
+  const [board, setBoard] = useState(initialBoard);
+
+  useEffect(() => {
+    if (!id) return;
+    boardService.getBoardById(id)
+      .then((data) => {
+        if (data) {
+          setBoard({
+            ...data,
+            id: data.id || data._id,
+            dimensions: data.dimensions || `${data.width || 30} × ${data.height || 15} ft`,
+          });
+        }
+      })
+      .catch(() => {});
   }, [id]);
 
   const isDigital = board.boardType?.toLowerCase().includes('led') || board.boardType?.toLowerCase().includes('digital');
@@ -54,7 +64,7 @@ export default function BoardDetails() {
   const [bookingMode, setBookingMode] = useState(isDigital ? 'digital_spot' : 'exclusive');
   const [spotDuration, setSpotDuration] = useState(10); // 10 seconds
   const [loopInterval, setLoopInterval] = useState(60); // Every 60 seconds
-  const [operatingHours, setOperatingHours] = useState('10 AM – 10 PM'); // 12 hours
+  const operatingHours = '10 AM – 10 PM'; // 12 hours
 
   // Date selection (Phase 12, 13, 21)
   const today = new Date().toISOString().split('T')[0];
@@ -73,6 +83,22 @@ export default function BoardDetails() {
       status: 'approved'
     }
   ]);
+
+  useEffect(() => {
+    if (!id) return;
+    bookingService.getBoardAvailability(id)
+      .then((data) => {
+        if (data?.bookedIntervals && data.bookedIntervals.length > 0) {
+          setBookedIntervals(data.bookedIntervals.map(i => ({
+            startDate: new Date(i.startDate).toISOString().split('T')[0],
+            endDate: new Date(i.endDate).toISOString().split('T')[0],
+            label: 'Reserved by Client',
+            status: i.status,
+          })));
+        }
+      })
+      .catch(() => {});
+  }, [id]);
 
   // Reviews State (Phase 23)
   const [reviews, setReviews] = useState([
@@ -188,7 +214,9 @@ export default function BoardDetails() {
       if (board._id || id) {
         await favoriteService.toggleFavorite(board._id || id);
       }
-    } catch (e) {}
+    } catch {
+      // Offline fallback
+    }
   };
 
   const handleAddReview = async (e) => {
@@ -215,7 +243,9 @@ export default function BoardDetails() {
           comment: newRev.comment,
         });
       }
-    } catch (e) {}
+    } catch {
+      // Offline fallback
+    }
   };
 
   const handleShare = () => {
@@ -299,7 +329,7 @@ export default function BoardDetails() {
             </button>
             <button
               type="button"
-              onClick={() => setIsFavorite(!isFavorite)}
+              onClick={handleToggleFavorite}
               className={`p-2 rounded-xl border transition-colors cursor-pointer ${
                 isFavorite 
                   ? 'bg-red-50 border-red-200 text-red-500' 

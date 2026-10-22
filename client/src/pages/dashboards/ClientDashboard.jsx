@@ -40,7 +40,7 @@ export default function ClientDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') || 'dashboard';
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [isLoadingBookings, setIsLoadingBookings] = useState(false);
+  const [isLoadingBookings, setIsLoadingBookings] = useState(true);
 
   // Client Bookings State (Phase 15, 21, 22)
   const [bookings, setBookings] = useState([
@@ -119,7 +119,6 @@ export default function ClientDashboard() {
 
   // Fetch client bookings from backend
   useEffect(() => {
-    setIsLoadingBookings(true);
     bookingService.getMyBookings()
       .then((data) => {
         if (data.bookings && data.bookings.length > 0) {

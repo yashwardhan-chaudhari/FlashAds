@@ -157,3 +157,5 @@ export default function Logo({
     </div>
   );
 }
+
+export { Logo };

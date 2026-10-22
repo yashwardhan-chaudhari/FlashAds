@@ -20,6 +20,7 @@ import {
 import BoardCard from '../components/common/BoardCard';
 import { mockBoards, puneAreas } from '../data/mockBoards';
 import { formatCurrency } from '../utils/formatters';
+import boardService from '../services/boardService';
 
 export default function Explore() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,6 +30,8 @@ export default function Explore() {
   const initialType = searchParams.get('type') || 'all';
   const initialQuery = searchParams.get('q') || '';
 
+  const [allBoards, setAllBoards] = useState(mockBoards);
+  const [isLoading, setIsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [selectedArea, setSelectedArea] = useState(initialArea);
   const [selectedType, setSelectedType] = useState(initialType);
@@ -38,9 +41,31 @@ export default function Explore() {
   const [maxPrice, setMaxPrice] = useState(150000);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
+  // Fetch approved boards from backend API
+  useEffect(() => {
+    setIsLoading(true);
+    boardService.getPublicBoards()
+      .then((data) => {
+        if (data.boards && data.boards.length > 0) {
+          const normalized = data.boards.map(b => ({
+            ...b,
+            id: b.id || b._id,
+            dimensions: b.dimensions || `${b.width || 30} × ${b.height || 15} ft`,
+          }));
+          setAllBoards(normalized);
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend boards fetch fallback to mock data:', err);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, []);
+
   // Filter and Sort Logic matching Phase 10 Specs
   const filteredBoards = useMemo(() => {
-    return mockBoards.filter((board) => {
+    return allBoards.filter((board) => {
       // Area match
       if (selectedArea !== 'All Areas' && !board.area.toLowerCase().includes(selectedArea.toLowerCase())) {
         return false;

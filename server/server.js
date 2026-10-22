@@ -14,6 +14,7 @@ import favoriteRoutes from './routes/favoriteRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import reviewRoutes from './routes/reviewRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 import seedDefaultUsers from './utils/seedUsers.js';
 import seedBoards from './utils/seedBoards.js';
 import seedBookings from './utils/seedBookings.js';
@@ -26,10 +27,12 @@ const PORT = process.env.PORT || 5000;
 
 // Connect to Database & seed demo accounts
 if (process.env.NODE_ENV !== 'test') {
-  connectDB().then(async () => {
-    await seedDefaultUsers();
-    await seedBoards();
-    await seedBookings();
+  connectDB().then(async (connected) => {
+    if (connected) {
+      await seedDefaultUsers();
+      await seedBoards();
+      await seedBookings();
+    }
   });
 }
 
@@ -67,6 +70,7 @@ app.use('/api/favorites', favoriteRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Root route
 app.get('/', (req, res) => {

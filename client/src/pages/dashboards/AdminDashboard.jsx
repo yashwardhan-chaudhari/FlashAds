@@ -25,10 +25,12 @@ import {
   Filter
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../../utils/formatters';
+import adminService from '../../services/adminService';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('pending'); // 'pending' | 'all-boards' | 'stats'
+  const [isLoading, setIsLoading] = useState(false);
   
   // Pending Boards Queue for Admin Review
   const [boards, setBoards] = useState([
@@ -119,20 +121,56 @@ export default function AdminDashboard() {
     }
   ]);
 
+  // Fetch boards from backend
+  useEffect(() => {
+    setIsLoading(true);
+    adminService.getAllBoards()
+      .then((data) => {
+        if (data && data.boards && data.boards.length > 0) {
+          const mapped = data.boards.map(b => ({
+            ...b,
+            id: b._id || b.id,
+            dimensions: b.dimensions || `${b.width || 30} × ${b.height || 15} ft`,
+            ownerName: b.ownerId?.name || 'Verified Owner',
+            ownerEmail: b.ownerId?.email || 'owner@example.com',
+            ownerPhone: b.ownerId?.phone || '+91 98220 00000',
+            createdAt: new Date(b.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+          }));
+          setBoards(mapped);
+        }
+      })
+      .catch(() => {
+        // Fallback to initial mock state
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, []);
+
   // Active rejection modal state
   const [rejectingBoardId, setRejectingBoardId] = useState(null);
   const [rejectionFeedback, setRejectionFeedback] = useState('');
   const [selectedImagePreview, setSelectedImagePreview] = useState(null);
 
   // Handlers
-  const handleApprove = (id) => {
+  const handleApprove = async (id) => {
+    try {
+      await adminService.approveBoard(id);
+    } catch {
+      // Local fallback
+    }
     setBoards(boards.map(b => b.id === id ? { ...b, status: 'approved', rejectionReason: '' } : b));
   };
 
-  const handleRejectSubmit = (e) => {
+  const handleRejectSubmit = async (e) => {
     e.preventDefault();
     if (!rejectionFeedback.trim() || !rejectingBoardId) return;
 
+    try {
+      await adminService.rejectBoard(rejectingBoardId, rejectionFeedback.trim());
+    } catch {
+      // Local fallback
+    }
     setBoards(boards.map(b => b.id === rejectingBoardId ? { ...b, status: 'rejected', rejectionReason: rejectionFeedback.trim() } : b));
     setRejectingBoardId(null);
     setRejectionFeedback('');

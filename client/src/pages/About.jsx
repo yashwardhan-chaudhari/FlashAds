@@ -1,14 +1,8 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { 
   Zap, 
-  Target, 
   Users, 
-  ShieldCheck, 
-  MapPin, 
-  Award, 
-  Sparkles,
-  ArrowRight
+  ShieldCheck 
 } from 'lucide-react';
 
 export default function About() {

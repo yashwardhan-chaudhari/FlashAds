@@ -54,17 +54,45 @@ FlashAds/
 
 ## 🏁 Quick Start
 
-### 1. Backend Setup
+### Option A: Monorepo Single-Command (Recommended)
 ```bash
+# 1. Install dependencies across client & server
+npm run install:all
+
+# 2. Configure server environment
 cd server
-npm install
-cp .env.example .env   # Configure your MONGO_URI, JWT_SECRET, etc.
+cp .env.example .env   # Update with your MongoDB URI or use local default
+cd ..
+
+# 3. Launch both backend API (port 5000) & Vite frontend (port 5173) concurrently
 npm run dev
 ```
 
-### 2. Frontend Setup
+### Option B: Individual Terminal Startup
+
+#### 1. Backend Server
+```bash
+cd server
+npm install
+npm run dev
+# Server runs on http://localhost:5000
+```
+
+#### 2. Frontend Client
 ```bash
 cd client
 npm install
 npm run dev
+# Client runs on http://localhost:5173
 ```
+
+---
+
+## 👥 Seed Demo Accounts
+
+| Role | Email | Password | Dashboard URL |
+| --- | --- | --- | --- |
+| **Super Admin** | `admin@flashads.in` | `adminSecret123` | `/admin/dashboard` |
+| **Advertiser (Board Owner)** | `meena.owner@example.com` | `password123` | `/advertiser/dashboard` |
+| **Client (Business)** | `rahul.client@example.com` | `password123` | `/client/dashboard` |
+

@@ -1,26 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { Logo } from '../components/Logo';
+import { Logo } from '../components/common/Logo';
 import { 
   Menu, 
   X, 
   PlusCircle, 
-  User, 
   LogOut,
   LayoutDashboard,
   Zap, 
   ArrowRight, 
-  ShieldCheck, 
-  Building2, 
-  Tv,
   MessageSquare,
   Bell,
-  CheckCircle2,
-  Clock,
-  AlertCircle
+  CheckCircle2
 } from 'lucide-react';
-import notificationService from '../services/notificationService';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);

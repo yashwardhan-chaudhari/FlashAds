@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { Logo } from '../components/Logo';
+import { Logo } from '../components/common/Logo';
 import { 
   Mail, 
   Lock, 
